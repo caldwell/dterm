@@ -1,0 +1,97 @@
+#!/usr/bin/ruby
+# Copyright (c) 2006 David Caldwell. All rights reserved.
+require "socket"
+require "fcntl"
+
+serial_dev = ARGV.shift || "/dev/ttyS0";
+speed  = ARGV.shift || 115200;
+
+serial = open(serial_dev, "r+");
+system "stty raw -echo parmrk ispeed #{speed} ospeed #{speed} <#{serial_dev} >#{serial_dev} 2>&1";
+
+server = TCPserver.open(10000)
+addr = server.addr
+addr.shift
+printf("server is on %s\n", addr.join(":"))
+socks = [server,serial]
+writers = [serial]
+
+def set_nonblock(f)
+  flags = f.fcntl(Fcntl::F_GETFL)
+  flags |= File::NONBLOCK
+  f.fcntl(Fcntl::F_SETFL, flags)
+end
+
+set_nonblock(serial);
+
+# Telnet constants
+IAC = "\xff"; DONT = "\xfe"; DO = "\xfd"; WILL = "\xfb"; WONT = "\xfc"; SB = "\xfa"; ECHO = "\x01"; SUPP = "\x3"; NAWS = "\x1f"; LINE = "\x22"; SE = "\xf0";
+
+class IO
+  def add_output(s)
+    @pending_out = "" unless defined? @pending_out;
+    @pending_out += s
+  end
+  def send_pending()
+    begin
+      wrote = syswrite(@pending_out)
+      @pending_out = @pending_out[wrote, @pending_out.length-wrote]
+    rescue
+    end
+  end
+  @pending_out = "";
+  def pending?()
+    return @pending_out != nil && @pending_out != ""
+  end
+end
+
+loop do
+  writers = [];
+  for s in socks
+    writers.push(s) if s.pending?()
+  end
+  nsock = select(socks, writers);
+  next if nsock == nil
+  for s in nsock[0] # ready for read
+    if s == server
+      ns = s.accept
+
+      set_nonblock(ns);
+      ns.write(IAC+DO+ECHO);
+      ns.write(IAC+WILL+ECHO);
+      ns.write(IAC+DO+SUPP);
+      ns.write(IAC+WILL+SUPP);
+      #ns.write(IAC+DO   +NAWS);
+      ns.write(IAC+DONT+ LINE);
+      ns.write(IAC+WONT+LINE);
+      ns.sync=TRUE
+
+      socks.push(ns)
+      print(s, " is accepted\n")
+    elsif s == serial
+      str = s.read(100);
+      for o in socks
+        if (o != serial && o != server)
+          o.add_output(str)
+        end
+      end
+    else
+      if s.eof?
+        s.close
+        socks.delete(s)
+      elsif str = s.read(1000)
+        str.gsub!(/#{IAC+IAC}/,IAC) # escape
+        str.gsub!(/#{IAC}[#{WILL+WONT+DO+DONT}]./,"")
+        str.gsub!(/\x0d\x00/,"\x0d") # telnet sends CR NULL?
+        if str=~/#{IAC}/
+          printf("Bad telnet escape: %s\n", (str.split(//).collect {|s| s[0] }).join(","));
+          exit
+        end
+        serial.add_output(str);
+      end
+    end
+  end
+  for s in nsock[1] # ready for write
+    s.send_pending;
+  end
+end
