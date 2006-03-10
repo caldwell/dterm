@@ -3,6 +3,42 @@
 require "socket"
 require "fcntl"
 
+FILTER_CHAR = "\001";
+
+class IO
+  def filter()  @filtered = true; end
+  def filtered?() return @filtered; end
+  def add_filtered_output(s_in)
+    s = s_in.dup
+    @looking_for = @looking_for || FILTER_CHAR
+    filter_out = "";
+    # Four cases: _=unfiltered data, S=FILTER_CHAR, T=\n, .=filtered data
+    #  1) __S.....T__
+    #  2) __S..
+    #  3) .....
+    #  4) ....T__
+    # Note: we strip the filter char but not the terminating \n (not very symmetric)
+    if @looking_for == '\n' && s.sub!(/^(.*\n)/,"") # case 4
+      filter_out += $1
+      @looking_for = FILTER_CHAR
+    end
+    if @looking_for == '\n' # case 3
+      filter_out += s;
+      s = "";
+    else
+      while s.sub!(/#{FILTER_CHAR}([^\n]+\n)/,"") # case 1
+        filter_out += $1;
+      end
+
+      if @looking_for == FILTER_CHAR && s.sub!(/#{FILTER_CHAR}(.*)$/,"") # case 2
+        filter_out += $1
+        @looking_for = '\n';
+      end
+    end
+    add_output(filtered?() ? filter_out : s)
+  end
+end
+
 class IO
   def add_output(s)
     @pending_out = "" unless defined? @pending_out;
@@ -37,10 +73,11 @@ serial = open(serial_dev, "r+");
 system "stty raw -echo parmrk ispeed #{speed} ospeed #{speed} <#{serial_dev} >#{serial_dev} 2>&1";
 
 server = TCPserver.open(10000)
+filter = TCPserver.open(10001)
 addr = server.addr
 addr.shift
 printf("server is on %s\n", addr.join(":"))
-socks = [server,serial]
+socks = [server,filter,serial]
 writers = []
 
 serial.set_nonblock();
@@ -56,9 +93,10 @@ loop do
   nsock = select(socks, writers);
   next if nsock == nil
   for s in nsock[0] # ready for read
-    if s == server
+    if s == server || s == filter
       ns = s.accept
 
+      ns.filter() if s == filter
       ns.set_nonblock();
       ns.write(IAC+DO+ECHO);
       ns.write(IAC+WILL+ECHO);
@@ -74,8 +112,8 @@ loop do
     elsif s == serial
       str = s.read(100);
       for o in socks
-        if (o != serial && o != server)
-          o.add_output(str)
+        if (o != serial && o != server && o != filter)
+          o.add_filtered_output(str)
         end
       end
     else
