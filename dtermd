@@ -23,7 +23,7 @@ addr = server.addr
 addr.shift
 printf("server is on %s\n", addr.join(":"))
 socks = [server,serial]
-writers = [serial]
+writers = []
 
 serial.set_nonblock();
 
