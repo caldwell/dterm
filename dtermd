@@ -3,6 +3,15 @@
 require "socket"
 require "fcntl"
 
+class IO
+  def set_nonblock()
+    flags = fcntl(Fcntl::F_GETFL)
+    flags |= File::NONBLOCK
+    fcntl(Fcntl::F_SETFL, flags)
+  end
+end
+
+
 serial_dev = ARGV.shift || "/dev/ttyS0";
 speed  = ARGV.shift || 115200;
 
@@ -16,13 +25,7 @@ printf("server is on %s\n", addr.join(":"))
 socks = [server,serial]
 writers = [serial]
 
-def set_nonblock(f)
-  flags = f.fcntl(Fcntl::F_GETFL)
-  flags |= File::NONBLOCK
-  f.fcntl(Fcntl::F_SETFL, flags)
-end
-
-set_nonblock(serial);
+serial.set_nonblock();
 
 # Telnet constants
 IAC = "\xff"; DONT = "\xfe"; DO = "\xfd"; WILL = "\xfb"; WONT = "\xfc"; SB = "\xfa"; ECHO = "\x01"; SUPP = "\x3"; NAWS = "\x1f"; LINE = "\x22"; SE = "\xf0";
@@ -56,7 +59,7 @@ loop do
     if s == server
       ns = s.accept
 
-      set_nonblock(ns);
+      ns.set_nonblock();
       ns.write(IAC+DO+ECHO);
       ns.write(IAC+WILL+ECHO);
       ns.write(IAC+DO+SUPP);
