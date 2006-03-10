@@ -4,6 +4,24 @@ require "socket"
 require "fcntl"
 
 class IO
+  def add_output(s)
+    @pending_out = "" unless defined? @pending_out;
+    @pending_out += s
+  end
+  def send_pending()
+    begin
+      wrote = syswrite(@pending_out)
+      @pending_out = @pending_out[wrote, @pending_out.length-wrote]
+    rescue
+    end
+  end
+  @pending_out = "";
+  def pending?()
+    return @pending_out != nil && @pending_out != ""
+  end
+end
+
+class IO
   def set_nonblock()
     flags = fcntl(Fcntl::F_GETFL)
     flags |= File::NONBLOCK
@@ -29,24 +47,6 @@ serial.set_nonblock();
 
 # Telnet constants
 IAC = "\xff"; DONT = "\xfe"; DO = "\xfd"; WILL = "\xfb"; WONT = "\xfc"; SB = "\xfa"; ECHO = "\x01"; SUPP = "\x3"; NAWS = "\x1f"; LINE = "\x22"; SE = "\xf0";
-
-class IO
-  def add_output(s)
-    @pending_out = "" unless defined? @pending_out;
-    @pending_out += s
-  end
-  def send_pending()
-    begin
-      wrote = syswrite(@pending_out)
-      @pending_out = @pending_out[wrote, @pending_out.length-wrote]
-    rescue
-    end
-  end
-  @pending_out = "";
-  def pending?()
-    return @pending_out != nil && @pending_out != ""
-  end
-end
 
 loop do
   writers = [];
