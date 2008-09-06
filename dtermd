@@ -65,6 +65,17 @@ class IO
   end
 end
 
+class History
+  def initialize(size=10*1024) @size = size;      clear(); end
+  def get()                    return @history;            end
+  def clear()                  @history = "";              end
+  def add(s)
+    @history += s;
+    @history = @history[-@size,@size] if @history.length > @size;
+  end
+end
+
+history = History.new();
 
 serial_dev = ARGV.shift || "/dev/ttyS0";
 speed  = ARGV.shift || 115200;
@@ -106,11 +117,13 @@ loop do
       ns.write(IAC+DONT+ LINE);
       ns.write(IAC+WONT+LINE);
       ns.sync=TRUE
+      ns.add_filtered_output(history.get())
 
       socks.push(ns)
       print(s, " is accepted\n")
     elsif s == serial
       str = s.read(100);
+      history.add(str);
       for o in socks
         if (o != serial && o != server && o != filter)
           o.add_filtered_output(str)
