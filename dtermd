@@ -83,8 +83,8 @@ speed  = ARGV.shift || 115200;
 serial = open(serial_dev, "r+");
 system "stty raw -echo parmrk ispeed #{speed} ospeed #{speed} <#{serial_dev} >#{serial_dev} 2>&1";
 
-server = TCPserver.open(10000)
-filter = TCPserver.open(10001)
+server = TCPserver.open('localhost', 10000)
+filter = TCPserver.open('localhost', 10001)
 addr = server.addr
 addr.shift
 printf("server is on %s\n", addr.join(":"))
